@@ -17,10 +17,17 @@ Aplicação web de **ordens de serviço de manutenção** (relógios e catracas)
 ## Stack
 
 - Next.js (App Router) + TypeScript + Tailwind CSS
-- SQLite local (`better-sqlite3`) em `data/manutencao.db`
+- SQLite local via `node:sqlite` (módulo embutido do Node — sem compilação nativa) em `data/manutencao.db`
 - `signature_pad` + `jspdf`
 
-## Como rodar
+## Requisitos
+
+- **Node.js 22.5+** (recomendado: Node 22 LTS ou Node 24)
+- Não é necessário Visual Studio Build Tools, Python nem `node-gyp`
+
+## Como rodar (Windows / macOS / Linux)
+
+No PowerShell, Prompt de Comando ou terminal:
 
 ```bash
 npm install
@@ -36,6 +43,15 @@ npm run build
 npm start
 ```
 
+### Windows (sem ferramentas de build)
+
+1. Instale o [Node.js](https://nodejs.org/) 22 ou 24 (instalador `.msi`).
+2. Abra o PowerShell na pasta do projeto.
+3. Rode `npm install` — deve concluir sem pedir Python/MSVC.
+4. Rode `npm run dev` e acesse `http://localhost:3000`.
+
+Se o Node for mais antigo que 22.5, atualize: o app usa o SQLite embutido do Node (`node:sqlite`) para evitar dependências nativas como `better-sqlite3`.
+
 ## Uso rápido
 
 1. **Peças** (`/pecas`) — o catálogo já vem com peças de exemplo; edite ou adicione novas.
@@ -45,4 +61,4 @@ npm start
 
 ## Dados
 
-O banco SQLite é criado automaticamente em `data/manutencao.db` na primeira execução.
+O banco SQLite é criado automaticamente em `data/manutencao.db` na primeira execução (arquivos `.db` ficam fora do Git).
