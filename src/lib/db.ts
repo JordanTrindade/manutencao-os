@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import fs from "fs";
 import path from "path";
 import type {
@@ -14,23 +14,45 @@ const DB_PATH = path.join(DATA_DIR, "manutencao.db");
 
 declare global {
   // eslint-disable-next-line no-var
-  var __manutencaoDb: Database.Database | undefined;
+  var __manutencaoDb: DatabaseSync | undefined;
 }
 
-function createConnection(): Database.Database {
+function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
+  db.exec("BEGIN");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/** node:sqlite rows use null prototypes; RSC needs plain objects. */
+function plainRow<T>(row: object | undefined): T | undefined {
+  if (!row) return undefined;
+  return { ...row } as T;
+}
+
+function plainRows<T>(rows: object[]): T[] {
+  return rows.map((row) => ({ ...row }) as T);
+}
+
+function createConnection(): DatabaseSync {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  const db = new DatabaseSync(DB_PATH);
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
   seed(db);
   return db;
 }
 
-function migrate(db: Database.Database) {
+function migrate(db: DatabaseSync) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS parts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,9 +101,11 @@ function migrate(db: Database.Database) {
   `);
 }
 
-function seed(db: Database.Database) {
-  const count = db.prepare("SELECT COUNT(*) as c FROM parts").get() as { c: number };
-  if (count.c > 0) return;
+function seed(db: DatabaseSync) {
+  const count = plainRow<{ c: number }>(
+    db.prepare("SELECT COUNT(*) as c FROM parts").get() as object | undefined,
+  );
+  if ((count?.c ?? 0) > 0) return;
 
   const now = new Date().toISOString();
   const insert = db.prepare(
@@ -99,15 +123,14 @@ function seed(db: Database.Database) {
     ["Mola retorno", 18.5],
   ];
 
-  const tx = db.transaction(() => {
+  withTransaction(db, () => {
     for (const [name, price] of samples) {
       insert.run(name, price, now, now);
     }
   });
-  tx();
 }
 
-export function getDb(): Database.Database {
+export function getDb(): DatabaseSync {
   if (!globalThis.__manutencaoDb) {
     globalThis.__manutencaoDb = createConnection();
   }
@@ -115,15 +138,19 @@ export function getDb(): Database.Database {
 }
 
 export function listParts(): Part[] {
-  return getDb()
-    .prepare("SELECT * FROM parts ORDER BY name COLLATE NOCASE ASC")
-    .all() as Part[];
+  return plainRows<Part>(
+    getDb()
+      .prepare("SELECT * FROM parts ORDER BY name COLLATE NOCASE ASC")
+      .all() as object[],
+  );
 }
 
 export function getPart(id: number): Part | undefined {
-  return getDb().prepare("SELECT * FROM parts WHERE id = ?").get(id) as
-    | Part
-    | undefined;
+  return plainRow<Part>(
+    getDb().prepare("SELECT * FROM parts WHERE id = ?").get(id) as
+      | object
+      | undefined,
+  );
 }
 
 export function createPart(name: string, price: number): Part {
@@ -152,9 +179,11 @@ export function deletePart(id: number): boolean {
 }
 
 function attachParts(order: ServiceOrder): ServiceOrder {
-  const parts = getDb()
-    .prepare("SELECT * FROM order_parts WHERE order_id = ? ORDER BY id ASC")
-    .all(order.id) as OrderPart[];
+  const parts = plainRows<OrderPart>(
+    getDb()
+      .prepare("SELECT * FROM order_parts WHERE order_id = ? ORDER BY id ASC")
+      .all(order.id) as object[],
+  );
   return { ...order, parts };
 }
 
@@ -164,27 +193,33 @@ export function listOrders(query?: string): ServiceOrder[] {
 
   if (query && query.trim()) {
     const q = `%${query.trim()}%`;
-    rows = db
-      .prepare(
-        `SELECT * FROM service_orders
+    rows = plainRows<ServiceOrder>(
+      db
+        .prepare(
+          `SELECT * FROM service_orders
          WHERE serial_number LIKE ? COLLATE NOCASE
             OR client_name LIKE ? COLLATE NOCASE
          ORDER BY id DESC`,
-      )
-      .all(q, q) as ServiceOrder[];
+        )
+        .all(q, q) as object[],
+    );
   } else {
-    rows = db
-      .prepare("SELECT * FROM service_orders ORDER BY id DESC")
-      .all() as ServiceOrder[];
+    rows = plainRows<ServiceOrder>(
+      db
+        .prepare("SELECT * FROM service_orders ORDER BY id DESC")
+        .all() as object[],
+    );
   }
 
   return rows.map(attachParts);
 }
 
 export function getOrder(id: number): ServiceOrder | undefined {
-  const row = getDb()
-    .prepare("SELECT * FROM service_orders WHERE id = ?")
-    .get(id) as ServiceOrder | undefined;
+  const row = plainRow<ServiceOrder>(
+    getDb()
+      .prepare("SELECT * FROM service_orders WHERE id = ?")
+      .get(id) as object | undefined,
+  );
   return row ? attachParts(row) : undefined;
 }
 
@@ -210,7 +245,7 @@ export function createOrder(input: ServiceOrderInput): ServiceOrder {
   const now = new Date().toISOString();
   const db = getDb();
 
-  const tx = db.transaction(() => {
+  const id = withTransaction(db, () => {
     const result = db
       .prepare(
         `INSERT INTO service_orders (
@@ -251,7 +286,6 @@ export function createOrder(input: ServiceOrderInput): ServiceOrder {
     return orderId;
   });
 
-  const id = tx();
   return getOrder(id)!;
 }
 
@@ -265,7 +299,7 @@ export function updateOrder(
   const now = new Date().toISOString();
   const db = getDb();
 
-  const tx = db.transaction(() => {
+  withTransaction(db, () => {
     db.prepare(
       `UPDATE service_orders SET
         serial_number = ?, equipment_type = ?, equipment_subtype = ?, accessories = ?,
@@ -304,7 +338,6 @@ export function updateOrder(
     }
   });
 
-  tx();
   return getOrder(id)!;
 }
 
