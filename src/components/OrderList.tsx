@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { formatBRL, formatDateTimeBR } from "@/lib/format";
 import type { ServiceOrder } from "@/lib/types";
+
+type StatusFilter = "todas" | ServiceOrder["status"];
 
 function statusLabel(status: ServiceOrder["status"]) {
   switch (status) {
@@ -27,7 +28,22 @@ export function OrderList({
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
   const [orders, setOrders] = useState(initialOrders);
+  const [status, setStatus] = useState<StatusFilter>("todas");
   const [searching, setSearching] = useState(false);
+
+  const counts = useMemo(() => {
+    return {
+      todas: orders.length,
+      aberta: orders.filter((order) => order.status === "aberta").length,
+      concluida: orders.filter((order) => order.status === "concluida").length,
+      entregue: orders.filter((order) => order.status === "entregue").length,
+    };
+  }, [orders]);
+
+  const visible = useMemo(
+    () => (status === "todas" ? orders : orders.filter((order) => order.status === status)),
+    [orders, status],
+  );
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
@@ -43,88 +59,117 @@ export function OrderList({
     }
   }
 
+  async function clearSearch() {
+    setQuery("");
+    setStatus("todas");
+    router.replace("/");
+    const res = await fetch("/api/orders");
+    setOrders(await res.json());
+  }
+
+  const filters: Array<{ id: StatusFilter; label: string }> = [
+    { id: "todas", label: `Todas ${counts.todas}` },
+    { id: "aberta", label: `Abertas ${counts.aberta}` },
+    { id: "concluida", label: `Concluídas ${counts.concluida}` },
+    { id: "entregue", label: `Entregues ${counts.entregue}` },
+  ];
+
   return (
-    <div className="space-y-5">
-      <form onSubmit={search} className="panel flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:p-5">
-        <div className="field flex-1">
-          <label htmlFor="search">Buscar OS</label>
+    <section className="card">
+      <div className="toolbar">
+        <form onSubmit={search} className="search">
           <input
             id="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Nº de série ou nome do cliente"
+            placeholder="Série ou cliente"
+            aria-label="Buscar OS"
           />
-        </div>
-        <div className="flex gap-2">
-          <button type="submit" className="btn btn-primary" disabled={searching}>
+          <button type="submit" className="btn btn-ghost" disabled={searching}>
             {searching ? "Buscando…" : "Buscar"}
           </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => {
-              setQuery("");
-              setOrders(initialOrders);
-              router.replace("/");
-              fetch("/api/orders")
-                .then((r) => r.json())
-                .then(setOrders);
-            }}
-          >
-            Limpar
-          </button>
+          {query && (
+            <button type="button" className="btn btn-ghost" onClick={clearSearch}>
+              Limpar
+            </button>
+          )}
+        </form>
+        <div className="filters" role="tablist" aria-label="Filtrar por status">
+          {filters.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              className={`chip${status === filter.id ? " active" : ""}`}
+              onClick={() => setStatus(filter.id)}
+            >
+              {filter.label}
+            </button>
+          ))}
         </div>
-      </form>
+      </div>
 
-      {orders.length === 0 ? (
-        <div className="panel p-8 text-center">
-          <h2 className="section-title">Nenhuma OS encontrada</h2>
-          <p className="section-copy mb-0">
-            Crie a primeira ordem ou ajuste os termos da busca.
-          </p>
-          <Link href="/os/nova" className="btn btn-primary mt-4 inline-flex">
-            Nova OS
-          </Link>
+      {visible.length === 0 ? (
+        <div className="empty">
+          <strong>Nenhuma OS nesta visão</strong>
+          Ajuste a busca ou o status, ou abra uma nova ordem.
         </div>
       ) : (
-        <div className="grid gap-4">
-          {orders.map((order) => {
-            const status = statusLabel(order.status);
-            const partsTotal = (order.parts || []).reduce(
-              (sum, p) => sum + p.part_price * p.quantity,
-              0,
-            );
-            return (
-              <Link
-                key={order.id}
-                href={`/os/${order.id}`}
-                className="panel block p-5 transition hover:-translate-y-0.5 hover:border-[var(--brand)]"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                      OS #{order.id} · {formatDateTimeBR(order.created_at)}
-                    </div>
-                    <h3 className="mt-1 font-[family-name:var(--font-display)] text-xl tracking-tight">
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>OS</th>
+                <th>Cliente</th>
+                <th>Equipamento</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Peças</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((order) => {
+                const label = statusLabel(order.status);
+                const partsTotal = (order.parts || []).reduce(
+                  (sum, part) => sum + part.part_price * part.quantity,
+                  0,
+                );
+                return (
+                  <tr
+                    key={order.id}
+                    className="clickable"
+                    tabIndex={0}
+                    onClick={() => router.push(`/os/${order.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        router.push(`/os/${order.id}`);
+                      }
+                    }}
+                  >
+                    <td>
+                      <span className="num">#{order.id}</span>
+                      <span className="sub">{formatDateTimeBR(order.created_at)}</span>
+                    </td>
+                    <td>
                       {order.client_name}
-                    </h3>
-                    <p className="mt-1 text-[var(--muted)]">
-                      Série {order.serial_number} · {order.equipment_type}{" "}
-                      {order.equipment_subtype} · {order.service_type}
-                    </p>
-                  </div>
-                  <span className={status.className}>{status.text}</span>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-4 text-sm text-[var(--muted)]">
-                  <span>Peças: {formatBRL(partsTotal)}</span>
-                  <span>Orçamento: {order.quote_number || "—"}</span>
-                  <span>Tel.: {order.responsible_phone || "—"}</span>
-                </div>
-              </Link>
-            );
-          })}
+                      <span className="sub">{order.quote_number || "Sem orçamento"}</span>
+                    </td>
+                    <td>
+                      {order.equipment_type} {order.equipment_subtype}
+                      <span className="sub">Série {order.serial_number}</span>
+                    </td>
+                    <td>{order.service_type}</td>
+                    <td>
+                      <span className={label.className}>{label.text}</span>
+                    </td>
+                    <td className="num">{formatBRL(partsTotal)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
-    </div>
+    </section>
   );
 }

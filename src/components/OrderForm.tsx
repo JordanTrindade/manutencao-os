@@ -229,334 +229,357 @@ export function OrderForm({
     }
   }
 
+  const previewOrder: ServiceOrder | null = initialOrder
+    ? {
+        ...initialOrder,
+        ...form,
+        parts: form.parts.map((part, index) => ({
+          id: index,
+          order_id: initialOrder.id,
+          ...part,
+        })),
+      }
+    : null;
+
   return (
-    <form onSubmit={onSubmit} className="space-y-6">
-      <section className="panel p-5 sm:p-6">
-        <h2 className="section-title">1. Equipamento</h2>
-        <p className="section-copy">Identifique o aparelho e o tipo de atendimento.</p>
-        <div className="grid-2">
-          <div className="field">
-            <label htmlFor="serial_number">Nº de série</label>
-            <input
-              id="serial_number"
-              required
-              value={form.serial_number}
-              onChange={(e) => update("serial_number", e.target.value)}
-              placeholder="Ex.: SN-2026-0041"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="service_type">Tipo de serviço</label>
-            <select
-              id="service_type"
-              value={form.service_type}
-              onChange={(e) => update("service_type", e.target.value as ServiceType)}
-            >
-              {SERVICE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="equipment_type">Tipo de equipamento</label>
-            <select
-              id="equipment_type"
-              value={form.equipment_type}
-              onChange={(e) => onEquipmentTypeChange(e.target.value as EquipmentType)}
-            >
-              <option value="Relógio">Relógio</option>
-              <option value="Catraca">Catraca</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="equipment_subtype">Modelo / variante</label>
-            <select
-              id="equipment_subtype"
-              value={form.equipment_subtype}
-              onChange={(e) =>
-                update("equipment_subtype", e.target.value as EquipmentSubtype)
-              }
-            >
-              {subtypes.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="field mt-4">
-          <label htmlFor="accessories">O que veio junto</label>
-          <textarea
-            id="accessories"
-            value={form.accessories}
-            onChange={(e) => update("accessories", e.target.value)}
-            placeholder="Fonte, cabos, suporte, chave, etc."
-          />
-        </div>
-      </section>
-
-      <section className="panel p-5 sm:p-6">
-        <h2 className="section-title">2. Dados do cliente</h2>
-        <p className="section-copy">Quem solicitou o serviço e como localizar o orçamento.</p>
-        <div className="grid-2">
-          <div className="field">
-            <label htmlFor="client_name">Nome</label>
-            <input
-              id="client_name"
-              required
-              value={form.client_name}
-              onChange={(e) => update("client_name", e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="client_cnpj">CNPJ</label>
-            <input
-              id="client_cnpj"
-              value={form.client_cnpj}
-              onChange={(e) => update("client_cnpj", e.target.value)}
-              placeholder="00.000.000/0000-00"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="quote_number">Nº orçamento</label>
-            <input
-              id="quote_number"
-              value={form.quote_number}
-              onChange={(e) => update("quote_number", e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="responsible_phone">Telefone do responsável</label>
-            <input
-              id="responsible_phone"
-              value={form.responsible_phone}
-              onChange={(e) => update("responsible_phone", e.target.value)}
-              placeholder="(00) 00000-0000"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="panel p-5 sm:p-6">
-        <h2 className="section-title">3. Problema apresentado</h2>
-        <p className="section-copy">Descreva o defeito ou solicitação do cliente.</p>
-        <div className="field">
-          <label htmlFor="problem_description">Descrição</label>
-          <textarea
-            id="problem_description"
-            value={form.problem_description}
-            onChange={(e) => update("problem_description", e.target.value)}
-            placeholder="Ex.: Relógio não reconhece face / catraca travando no giro"
-          />
-        </div>
-      </section>
-
-      <section className="panel p-5 sm:p-6">
-        <h2 className="section-title">4. Solução</h2>
-        <p className="section-copy">
-          Selecione peças do catálogo administrativo e registre a solução aplicada.
-        </p>
-        <div className="field mb-4">
-          <label htmlFor="solution_notes">Notas da solução</label>
-          <textarea
-            id="solution_notes"
-            value={form.solution_notes}
-            onChange={(e) => update("solution_notes", e.target.value)}
-          />
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="field flex-1">
-            <label htmlFor="part_pick">Peças trocadas</label>
-            <select
-              id="part_pick"
-              value={selectedPartId}
-              onChange={(e) => setSelectedPartId(e.target.value)}
-            >
-              {catalog.length === 0 && <option value="">Nenhuma peça cadastrada</option>}
-              {catalog.map((part) => (
-                <option key={part.id} value={part.id}>
-                  {part.name} — {formatBRL(part.price)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="button" className="btn btn-secondary" onClick={addPart}>
-            Adicionar peça
-          </button>
-        </div>
-
-        {form.parts.length > 0 && (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[520px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-left text-[var(--muted)]">
-                  <th className="py-2 pr-3 font-semibold">Peça</th>
-                  <th className="py-2 pr-3 font-semibold">Preço</th>
-                  <th className="py-2 pr-3 font-semibold">Qtd</th>
-                  <th className="py-2 pr-3 font-semibold">Subtotal</th>
-                  <th className="py-2 font-semibold" />
-                </tr>
-              </thead>
-              <tbody>
-                {form.parts.map((part, index) => (
-                  <tr key={`${part.part_id}-${index}`} className="border-b border-[var(--line)]">
-                    <td className="py-3 pr-3">{part.part_name}</td>
-                    <td className="py-3 pr-3">{formatBRL(part.part_price)}</td>
-                    <td className="py-3 pr-3">
-                      <input
-                        type="number"
-                        min={1}
-                        className="w-20 rounded-lg border border-[var(--line)] px-2 py-1"
-                        value={part.quantity}
-                        onChange={(e) => setPartQty(index, Number(e.target.value))}
-                      />
-                    </td>
-                    <td className="py-3 pr-3">
-                      {formatBRL(part.part_price * part.quantity)}
-                    </td>
-                    <td className="py-3">
-                      <button
-                        type="button"
-                        className="btn btn-danger px-3 py-1 text-xs"
-                        onClick={() => removePart(index)}
-                      >
-                        Remover
-                      </button>
-                    </td>
-                  </tr>
+    <form onSubmit={onSubmit} className="sheet-grid">
+      <div className="card">
+        <section className="section">
+          <h2>Equipamento</h2>
+          <div className="grid-2">
+            <div className="field">
+              <label htmlFor="serial_number">Nº de série</label>
+              <input
+                id="serial_number"
+                required
+                value={form.serial_number}
+                onChange={(e) => update("serial_number", e.target.value)}
+                placeholder="SN-2026-0041"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="service_type">Tipo de serviço</label>
+              <select
+                id="service_type"
+                value={form.service_type}
+                onChange={(e) => update("service_type", e.target.value as ServiceType)}
+              >
+                {SERVICE_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
                 ))}
-              </tbody>
-            </table>
-            <div className="mt-3 text-right font-semibold">
-              Total peças: {formatBRL(partsTotal)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="equipment_type">Equipamento</label>
+              <select
+                id="equipment_type"
+                value={form.equipment_type}
+                onChange={(e) => onEquipmentTypeChange(e.target.value as EquipmentType)}
+              >
+                <option value="Relógio">Relógio</option>
+                <option value="Catraca">Catraca</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="equipment_subtype">Modelo</label>
+              <select
+                id="equipment_subtype"
+                value={form.equipment_subtype}
+                onChange={(e) =>
+                  update("equipment_subtype", e.target.value as EquipmentSubtype)
+                }
+              >
+                {subtypes.map((subtype) => (
+                  <option key={subtype} value={subtype}>
+                    {subtype}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-        )}
-      </section>
-
-      <section className="panel p-5 sm:p-6">
-        <h2 className="section-title">5. Assinatura</h2>
-        <p className="section-copy">Assinatura na tela para confirmação do serviço.</p>
-        <SignaturePad
-          value={form.signature_data}
-          onChange={(data) => update("signature_data", data)}
-        />
-      </section>
-
-      <section className="panel p-5 sm:p-6">
-        <h2 className="section-title">6. Equipamento entregue / recolhido</h2>
-        <p className="section-copy">
-          Registre quem entregou o equipamento ao laboratório e quem o recolheu depois.
-        </p>
-        <div className="grid-2">
-          <div className="space-y-3 rounded-2xl bg-[var(--bg-accent)] p-4">
-            <h3 className="m-0 font-semibold text-[var(--brand-dark)]">Entrega no laboratório</h3>
-            <div className="field">
-              <label htmlFor="delivery_name">Nome de quem entregou</label>
-              <input
-                id="delivery_name"
-                value={form.delivery_name}
-                onChange={(e) => update("delivery_name", e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="delivery_rg">RG</label>
-              <input
-                id="delivery_rg"
-                value={form.delivery_rg}
-                onChange={(e) => update("delivery_rg", e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="delivery_date">Data</label>
-              <input
-                id="delivery_date"
-                type="date"
-                value={form.delivery_date}
-                onChange={(e) => update("delivery_date", e.target.value)}
-              />
-            </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label htmlFor="accessories">Acompanha</label>
+            <textarea
+              id="accessories"
+              value={form.accessories}
+              onChange={(e) => update("accessories", e.target.value)}
+              placeholder="Fonte, cabos, suporte, chave"
+            />
           </div>
+        </section>
 
-          <div className="space-y-3 rounded-2xl bg-[var(--bg-accent)] p-4">
-            <h3 className="m-0 font-semibold text-[var(--brand-dark)]">
-              Recolhido pelo cliente
-            </h3>
+        <section className="section">
+          <h2>Cliente</h2>
+          <div className="grid-2">
             <div className="field">
-              <label htmlFor="pickup_name">Nome</label>
+              <label htmlFor="client_name">Nome</label>
               <input
-                id="pickup_name"
-                value={form.pickup_name}
-                onChange={(e) => update("pickup_name", e.target.value)}
+                id="client_name"
+                required
+                value={form.client_name}
+                onChange={(e) => update("client_name", e.target.value)}
               />
             </div>
             <div className="field">
-              <label htmlFor="pickup_rg">RG</label>
+              <label htmlFor="client_cnpj">CNPJ</label>
               <input
-                id="pickup_rg"
-                value={form.pickup_rg}
-                onChange={(e) => update("pickup_rg", e.target.value)}
+                id="client_cnpj"
+                value={form.client_cnpj}
+                onChange={(e) => update("client_cnpj", e.target.value)}
+                placeholder="00.000.000/0000-00"
               />
             </div>
             <div className="field">
-              <label htmlFor="pickup_date">Data</label>
+              <label htmlFor="quote_number">Orçamento</label>
               <input
-                id="pickup_date"
-                type="date"
-                value={form.pickup_date}
-                onChange={(e) => update("pickup_date", e.target.value)}
+                id="quote_number"
+                value={form.quote_number}
+                onChange={(e) => update("quote_number", e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="responsible_phone">Telefone</label>
+              <input
+                id="responsible_phone"
+                value={form.responsible_phone}
+                onChange={(e) => update("responsible_phone", e.target.value)}
+                placeholder="(00) 00000-0000"
               />
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="field mt-4 max-w-xs">
-          <label htmlFor="status">Status da OS</label>
-          <select
-            id="status"
-            value={form.status}
-            onChange={(e) =>
-              update("status", e.target.value as ServiceOrder["status"])
-            }
-          >
-            <option value="aberta">Aberta</option>
-            <option value="concluida">Concluída</option>
-            <option value="entregue">Entregue</option>
-          </select>
-        </div>
-      </section>
+        <section className="section">
+          <h2>Problema e solução</h2>
+          <div className="grid-2">
+            <div className="field">
+              <label htmlFor="problem_description">Problema</label>
+              <textarea
+                id="problem_description"
+                value={form.problem_description}
+                onChange={(e) => update("problem_description", e.target.value)}
+                placeholder="Relógio não reconhece face, catraca travando no giro"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="solution_notes">Solução</label>
+              <textarea
+                id="solution_notes"
+                value={form.solution_notes}
+                onChange={(e) => update("solution_notes", e.target.value)}
+              />
+            </div>
+          </div>
 
-      {(error || message) && (
-        <div
-          className={`rounded-xl px-4 py-3 text-sm font-medium ${
-            error
-              ? "bg-[#fde8e6] text-[var(--danger)]"
-              : "bg-[#e5f6ec] text-[var(--ok)]"
-          }`}
-        >
-          {error || message}
-        </div>
-      )}
+          <div className="parts-add" style={{ marginTop: 14 }}>
+            <div className="field">
+              <label htmlFor="part_pick">Peça do catálogo</label>
+              <select
+                id="part_pick"
+                value={selectedPartId}
+                onChange={(e) => setSelectedPartId(e.target.value)}
+              >
+                {catalog.length === 0 && <option value="">Nenhuma peça cadastrada</option>}
+                {catalog.map((part) => (
+                  <option key={part.id} value={part.id}>
+                    {part.name} — {formatBRL(part.price)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button type="button" className="btn btn-secondary" onClick={addPart}>
+              Adicionar
+            </button>
+          </div>
 
-      <div className="flex flex-wrap gap-3">
-        <button type="submit" className="btn btn-primary" disabled={saving}>
-          {saving
-            ? "Salvando…"
-            : initialOrder
-              ? "Salvar alterações"
-              : "Criar ordem de serviço"}
-        </button>
-        {initialOrder && <ExportPdfButton order={{ ...initialOrder, ...form, parts: form.parts.map((p, i) => ({ id: i, order_id: initialOrder.id, ...p })) }} />}
-        {initialOrder && (
-          <button type="button" className="btn btn-danger" onClick={onDelete}>
-            Excluir OS
-          </button>
-        )}
+          {form.parts.length > 0 && (
+            <div className="table-wrap" style={{ marginTop: 12 }}>
+              <table className="data" style={{ minWidth: 520 }}>
+                <thead>
+                  <tr>
+                    <th>Peça</th>
+                    <th>Preço</th>
+                    <th>Qtd</th>
+                    <th>Subtotal</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.parts.map((part, index) => (
+                    <tr key={`${part.part_id}-${index}`}>
+                      <td>{part.part_name}</td>
+                      <td>{formatBRL(part.part_price)}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min={1}
+                          className="qty"
+                          style={{ width: 72 }}
+                          value={part.quantity}
+                          onChange={(e) => setPartQty(index, Number(e.target.value))}
+                          aria-label={`Quantidade de ${part.part_name}`}
+                        />
+                      </td>
+                      <td className="num">{formatBRL(part.part_price * part.quantity)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => removePart(index)}
+                        >
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="total-line">Total {formatBRL(partsTotal)}</div>
+            </div>
+          )}
+        </section>
+
+        <section className="section">
+          <h2>Assinatura</h2>
+          <SignaturePad
+            value={form.signature_data}
+            onChange={(data) => update("signature_data", data)}
+          />
+        </section>
+
+        <section className="section">
+          <h2>Entrega e recolhimento</h2>
+          <div className="handover">
+            <div className="handover-box">
+              <h3>Entrega no laboratório</h3>
+              <div className="field">
+                <label htmlFor="delivery_name">Nome</label>
+                <input
+                  id="delivery_name"
+                  value={form.delivery_name}
+                  onChange={(e) => update("delivery_name", e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="delivery_rg">RG</label>
+                <input
+                  id="delivery_rg"
+                  value={form.delivery_rg}
+                  onChange={(e) => update("delivery_rg", e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="delivery_date">Data</label>
+                <input
+                  id="delivery_date"
+                  type="date"
+                  value={form.delivery_date}
+                  onChange={(e) => update("delivery_date", e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="handover-box">
+              <h3>Recolhido pelo cliente</h3>
+              <div className="field">
+                <label htmlFor="pickup_name">Nome</label>
+                <input
+                  id="pickup_name"
+                  value={form.pickup_name}
+                  onChange={(e) => update("pickup_name", e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="pickup_rg">RG</label>
+                <input
+                  id="pickup_rg"
+                  value={form.pickup_rg}
+                  onChange={(e) => update("pickup_rg", e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="pickup_date">Data</label>
+                <input
+                  id="pickup_date"
+                  type="date"
+                  value={form.pickup_date}
+                  onChange={(e) => update("pickup_date", e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
+
+      <aside className="card sheet-side">
+        <div>
+          <div className="field">
+            <label id="status-label">Status</label>
+            <div className="segment" role="group" aria-labelledby="status-label">
+              {(
+                [
+                  ["aberta", "Aberta"],
+                  ["concluida", "Concluída"],
+                  ["entregue", "Entregue"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={form.status === value}
+                  onClick={() => update("status", value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="summary-row">
+            <span>Cliente</span>
+            <strong>{form.client_name || "—"}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Série</span>
+            <strong>{form.serial_number || "—"}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Equipamento</span>
+            <strong>
+              {form.equipment_type} {form.equipment_subtype}
+            </strong>
+          </div>
+          <div className="summary-row">
+            <span>Serviço</span>
+            <strong>{form.service_type}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Peças</span>
+            <strong>{formatBRL(partsTotal)}</strong>
+          </div>
+        </div>
+
+        {(error || message) && (
+          <div className={`notice ${error ? "notice-error" : "notice-ok"}`}>
+            {error || message}
+          </div>
+        )}
+
+        <div className="side-actions">
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? "Salvando…" : initialOrder ? "Salvar" : "Criar OS"}
+          </button>
+          {previewOrder && <ExportPdfButton order={previewOrder} />}
+          {initialOrder && (
+            <button type="button" className="btn btn-danger" onClick={onDelete}>
+              Excluir
+            </button>
+          )}
+        </div>
+      </aside>
     </form>
   );
 }

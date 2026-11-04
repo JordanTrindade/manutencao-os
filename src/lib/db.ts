@@ -1,5 +1,5 @@
-import Database from "better-sqlite3";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import type {
   OrderPart,
@@ -9,306 +9,288 @@ import type {
   ServiceOrderInput,
 } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "manutencao.db");
+// Na Vercel o diretório da função (/var/task) é somente leitura.
+// /tmp aceita escrita, mas some quando a instância esfria.
+const DATA_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), "manutencao-os")
+  : path.join(process.cwd(), "data");
+const DB_PATH = path.join(DATA_DIR, "manutencao.json");
+
+let memoryOnly = false;
+
+type Store = {
+  nextPartId: number;
+  nextOrderId: number;
+  nextOrderPartId: number;
+  parts: Part[];
+  orders: ServiceOrder[];
+};
 
 declare global {
   // eslint-disable-next-line no-var
-  var __manutencaoDb: Database.Database | undefined;
+  var __manutencaoStore: Store | undefined;
 }
 
-function createConnection(): Database.Database {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+const SAMPLE_PARTS: Array<[string, number]> = [
+  ["Fonte 12V 3A", 89.9],
+  ["Leitor biométrico", 320.0],
+  ["Placa controladora", 450.0],
+  ["Display LCD 2.4\"", 75.5],
+  ["Cabo RJ45 3m", 25.0],
+  ["Sensor facial", 580.0],
+  ["Rolamento catraca", 42.0],
+  ["Mola retorno", 18.5],
+];
 
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  migrate(db);
-  seed(db);
-  return db;
+function emptyStore(): Store {
+  return {
+    nextPartId: 1,
+    nextOrderId: 1,
+    nextOrderPartId: 1,
+    parts: [],
+    orders: [],
+  };
 }
 
-function migrate(db: Database.Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS parts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      price REAL NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS service_orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      serial_number TEXT NOT NULL,
-      equipment_type TEXT NOT NULL,
-      equipment_subtype TEXT NOT NULL,
-      accessories TEXT NOT NULL DEFAULT '',
-      service_type TEXT NOT NULL,
-      client_name TEXT NOT NULL,
-      client_cnpj TEXT NOT NULL DEFAULT '',
-      quote_number TEXT NOT NULL DEFAULT '',
-      responsible_phone TEXT NOT NULL DEFAULT '',
-      problem_description TEXT NOT NULL DEFAULT '',
-      solution_notes TEXT NOT NULL DEFAULT '',
-      signature_data TEXT,
-      pickup_name TEXT NOT NULL DEFAULT '',
-      pickup_rg TEXT NOT NULL DEFAULT '',
-      pickup_date TEXT NOT NULL DEFAULT '',
-      delivery_name TEXT NOT NULL DEFAULT '',
-      delivery_rg TEXT NOT NULL DEFAULT '',
-      delivery_date TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'aberta',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS order_parts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      order_id INTEGER NOT NULL REFERENCES service_orders(id) ON DELETE CASCADE,
-      part_id INTEGER REFERENCES parts(id) ON DELETE SET NULL,
-      part_name TEXT NOT NULL,
-      part_price REAL NOT NULL,
-      quantity INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_orders_serial ON service_orders(serial_number);
-    CREATE INDEX IF NOT EXISTS idx_orders_client ON service_orders(client_name);
-  `);
-}
-
-function seed(db: Database.Database) {
-  const count = db.prepare("SELECT COUNT(*) as c FROM parts").get() as { c: number };
-  if (count.c > 0) return;
-
+function seed(store: Store) {
+  if (store.parts.length > 0) return;
   const now = new Date().toISOString();
-  const insert = db.prepare(
-    "INSERT INTO parts (name, price, created_at, updated_at) VALUES (?, ?, ?, ?)",
-  );
-
-  const samples: Array<[string, number]> = [
-    ["Fonte 12V 3A", 89.9],
-    ["Leitor biométrico", 320.0],
-    ["Placa controladora", 450.0],
-    ["Display LCD 2.4\"", 75.5],
-    ["Cabo RJ45 3m", 25.0],
-    ["Sensor facial", 580.0],
-    ["Rolamento catraca", 42.0],
-    ["Mola retorno", 18.5],
-  ];
-
-  const tx = db.transaction(() => {
-    for (const [name, price] of samples) {
-      insert.run(name, price, now, now);
-    }
-  });
-  tx();
+  for (const [name, price] of SAMPLE_PARTS) {
+    store.parts.push({
+      id: store.nextPartId++,
+      name,
+      price,
+      created_at: now,
+      updated_at: now,
+    });
+  }
 }
 
-export function getDb(): Database.Database {
-  if (!globalThis.__manutencaoDb) {
-    globalThis.__manutencaoDb = createConnection();
+function loadStore(): Store {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+
+    if (!fs.existsSync(DB_PATH)) {
+      const store = emptyStore();
+      seed(store);
+      persist(store);
+      return store;
+    }
+
+    const raw = fs.readFileSync(DB_PATH, "utf8");
+    const parsed = JSON.parse(raw) as Store;
+    const store: Store = {
+      nextPartId: parsed.nextPartId ?? 1,
+      nextOrderId: parsed.nextOrderId ?? 1,
+      nextOrderPartId: parsed.nextOrderPartId ?? 1,
+      parts: parsed.parts ?? [],
+      orders: parsed.orders ?? [],
+    };
+    seed(store);
+    return store;
+  } catch (error) {
+    console.error("Disco indisponível; dados ficam só na memória desta instância.", error);
+    memoryOnly = true;
+    const store = emptyStore();
+    seed(store);
+    return store;
   }
-  return globalThis.__manutencaoDb;
+}
+
+function persist(store: Store) {
+  if (memoryOnly) return;
+  try {
+    const tmp = `${DB_PATH}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(store));
+    fs.renameSync(tmp, DB_PATH);
+  } catch (error) {
+    console.error("Falha ao gravar o JSON; seguindo só em memória.", error);
+    memoryOnly = true;
+  }
+}
+
+function getStore(): Store {
+  if (!globalThis.__manutencaoStore) {
+    globalThis.__manutencaoStore = loadStore();
+  }
+  return globalThis.__manutencaoStore;
+}
+
+function save() {
+  persist(getStore());
+}
+
+function cloneOrder(order: ServiceOrder): ServiceOrder {
+  return {
+    ...order,
+    parts: (order.parts ?? []).map((part) => ({ ...part })),
+  };
 }
 
 export function listParts(): Part[] {
-  return getDb()
-    .prepare("SELECT * FROM parts ORDER BY name COLLATE NOCASE ASC")
-    .all() as Part[];
+  return getStore()
+    .parts
+    .map((part) => ({ ...part }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }));
 }
 
 export function getPart(id: number): Part | undefined {
-  return getDb().prepare("SELECT * FROM parts WHERE id = ?").get(id) as
-    | Part
-    | undefined;
+  const part = getStore().parts.find((item) => item.id === id);
+  return part ? { ...part } : undefined;
 }
 
 export function createPart(name: string, price: number): Part {
+  const store = getStore();
   const now = new Date().toISOString();
-  const result = getDb()
-    .prepare(
-      "INSERT INTO parts (name, price, created_at, updated_at) VALUES (?, ?, ?, ?)",
-    )
-    .run(name.trim(), price, now, now);
-  return getPart(Number(result.lastInsertRowid))!;
+  const part: Part = {
+    id: store.nextPartId++,
+    name: name.trim(),
+    price,
+    created_at: now,
+    updated_at: now,
+  };
+  store.parts.push(part);
+  save();
+  return { ...part };
 }
 
 export function updatePart(id: number, name: string, price: number): Part | null {
-  const existing = getPart(id);
-  if (!existing) return null;
-  const now = new Date().toISOString();
-  getDb()
-    .prepare("UPDATE parts SET name = ?, price = ?, updated_at = ? WHERE id = ?")
-    .run(name.trim(), price, now, id);
-  return getPart(id)!;
+  const store = getStore();
+  const part = store.parts.find((item) => item.id === id);
+  if (!part) return null;
+  part.name = name.trim();
+  part.price = price;
+  part.updated_at = new Date().toISOString();
+  save();
+  return { ...part };
 }
 
 export function deletePart(id: number): boolean {
-  const result = getDb().prepare("DELETE FROM parts WHERE id = ?").run(id);
-  return result.changes > 0;
-}
-
-function attachParts(order: ServiceOrder): ServiceOrder {
-  const parts = getDb()
-    .prepare("SELECT * FROM order_parts WHERE order_id = ? ORDER BY id ASC")
-    .all(order.id) as OrderPart[];
-  return { ...order, parts };
+  const store = getStore();
+  const index = store.parts.findIndex((item) => item.id === id);
+  if (index < 0) return false;
+  store.parts.splice(index, 1);
+  for (const order of store.orders) {
+    for (const part of order.parts ?? []) {
+      if (part.part_id === id) part.part_id = null;
+    }
+  }
+  save();
+  return true;
 }
 
 export function listOrders(query?: string): ServiceOrder[] {
-  const db = getDb();
-  let rows: ServiceOrder[];
-
-  if (query && query.trim()) {
-    const q = `%${query.trim()}%`;
-    rows = db
-      .prepare(
-        `SELECT * FROM service_orders
-         WHERE serial_number LIKE ? COLLATE NOCASE
-            OR client_name LIKE ? COLLATE NOCASE
-         ORDER BY id DESC`,
-      )
-      .all(q, q) as ServiceOrder[];
-  } else {
-    rows = db
-      .prepare("SELECT * FROM service_orders ORDER BY id DESC")
-      .all() as ServiceOrder[];
-  }
-
-  return rows.map(attachParts);
+  const needle = query?.trim().toLocaleLowerCase("pt-BR") ?? "";
+  return getStore()
+    .orders
+    .filter((order) => {
+      if (!needle) return true;
+      return (
+        order.serial_number.toLocaleLowerCase("pt-BR").includes(needle) ||
+        order.client_name.toLocaleLowerCase("pt-BR").includes(needle)
+      );
+    })
+    .sort((a, b) => b.id - a.id)
+    .map(cloneOrder);
 }
 
 export function getOrder(id: number): ServiceOrder | undefined {
-  const row = getDb()
-    .prepare("SELECT * FROM service_orders WHERE id = ?")
-    .get(id) as ServiceOrder | undefined;
-  return row ? attachParts(row) : undefined;
+  const order = getStore().orders.find((item) => item.id === id);
+  return order ? cloneOrder(order) : undefined;
 }
 
-function replaceOrderParts(orderId: number, parts: OrderPartInput[] = []) {
-  const db = getDb();
-  db.prepare("DELETE FROM order_parts WHERE order_id = ?").run(orderId);
-  const insert = db.prepare(
-    `INSERT INTO order_parts (order_id, part_id, part_name, part_price, quantity)
-     VALUES (?, ?, ?, ?, ?)`,
-  );
-  for (const part of parts) {
-    insert.run(
-      orderId,
-      part.part_id,
-      part.part_name,
-      part.part_price,
-      Math.max(1, part.quantity || 1),
-    );
-  }
+function replaceOrderParts(order: ServiceOrder, parts: OrderPartInput[] = []) {
+  const store = getStore();
+  order.parts = parts.map((part) => {
+    const row: OrderPart = {
+      id: store.nextOrderPartId++,
+      order_id: order.id,
+      part_id: part.part_id,
+      part_name: part.part_name,
+      part_price: part.part_price,
+      quantity: Math.max(1, part.quantity || 1),
+    };
+    return row;
+  });
+}
+
+function applyOrderFields(order: ServiceOrder, input: ServiceOrderInput, now: string) {
+  order.serial_number = input.serial_number.trim();
+  order.equipment_type = input.equipment_type;
+  order.equipment_subtype = input.equipment_subtype;
+  order.accessories = input.accessories?.trim() || "";
+  order.service_type = input.service_type;
+  order.client_name = input.client_name.trim();
+  order.client_cnpj = input.client_cnpj?.trim() || "";
+  order.quote_number = input.quote_number?.trim() || "";
+  order.responsible_phone = input.responsible_phone?.trim() || "";
+  order.problem_description = input.problem_description?.trim() || "";
+  order.solution_notes = input.solution_notes?.trim() || "";
+  order.signature_data = input.signature_data ?? order.signature_data;
+  order.pickup_name = input.pickup_name?.trim() || "";
+  order.pickup_rg = input.pickup_rg?.trim() || "";
+  order.pickup_date = input.pickup_date || "";
+  order.delivery_name = input.delivery_name?.trim() || "";
+  order.delivery_rg = input.delivery_rg?.trim() || "";
+  order.delivery_date = input.delivery_date || "";
+  order.status = input.status || order.status;
+  order.updated_at = now;
 }
 
 export function createOrder(input: ServiceOrderInput): ServiceOrder {
+  const store = getStore();
   const now = new Date().toISOString();
-  const db = getDb();
-
-  const tx = db.transaction(() => {
-    const result = db
-      .prepare(
-        `INSERT INTO service_orders (
-          serial_number, equipment_type, equipment_subtype, accessories, service_type,
-          client_name, client_cnpj, quote_number, responsible_phone,
-          problem_description, solution_notes, signature_data,
-          pickup_name, pickup_rg, pickup_date,
-          delivery_name, delivery_rg, delivery_date,
-          status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.serial_number.trim(),
-        input.equipment_type,
-        input.equipment_subtype,
-        input.accessories?.trim() || "",
-        input.service_type,
-        input.client_name.trim(),
-        input.client_cnpj?.trim() || "",
-        input.quote_number?.trim() || "",
-        input.responsible_phone?.trim() || "",
-        input.problem_description?.trim() || "",
-        input.solution_notes?.trim() || "",
-        input.signature_data || null,
-        input.pickup_name?.trim() || "",
-        input.pickup_rg?.trim() || "",
-        input.pickup_date || "",
-        input.delivery_name?.trim() || "",
-        input.delivery_rg?.trim() || "",
-        input.delivery_date || "",
-        input.status || "aberta",
-        now,
-        now,
-      );
-
-    const orderId = Number(result.lastInsertRowid);
-    replaceOrderParts(orderId, input.parts || []);
-    return orderId;
-  });
-
-  const id = tx();
-  return getOrder(id)!;
+  const order: ServiceOrder = {
+    id: store.nextOrderId++,
+    serial_number: "",
+    equipment_type: input.equipment_type,
+    equipment_subtype: input.equipment_subtype,
+    accessories: "",
+    service_type: input.service_type,
+    client_name: "",
+    client_cnpj: "",
+    quote_number: "",
+    responsible_phone: "",
+    problem_description: "",
+    solution_notes: "",
+    signature_data: null,
+    pickup_name: "",
+    pickup_rg: "",
+    pickup_date: "",
+    delivery_name: "",
+    delivery_rg: "",
+    delivery_date: "",
+    status: input.status || "aberta",
+    created_at: now,
+    updated_at: now,
+    parts: [],
+  };
+  applyOrderFields(order, input, now);
+  order.created_at = now;
+  replaceOrderParts(order, input.parts || []);
+  store.orders.push(order);
+  save();
+  return cloneOrder(order);
 }
 
-export function updateOrder(
-  id: number,
-  input: ServiceOrderInput,
-): ServiceOrder | null {
-  const existing = getOrder(id);
-  if (!existing) return null;
-
+export function updateOrder(id: number, input: ServiceOrderInput): ServiceOrder | null {
+  const store = getStore();
+  const order = store.orders.find((item) => item.id === id);
+  if (!order) return null;
   const now = new Date().toISOString();
-  const db = getDb();
-
-  const tx = db.transaction(() => {
-    db.prepare(
-      `UPDATE service_orders SET
-        serial_number = ?, equipment_type = ?, equipment_subtype = ?, accessories = ?,
-        service_type = ?, client_name = ?, client_cnpj = ?, quote_number = ?,
-        responsible_phone = ?, problem_description = ?, solution_notes = ?,
-        signature_data = ?, pickup_name = ?, pickup_rg = ?, pickup_date = ?,
-        delivery_name = ?, delivery_rg = ?, delivery_date = ?, status = ?,
-        updated_at = ?
-       WHERE id = ?`,
-    ).run(
-      input.serial_number.trim(),
-      input.equipment_type,
-      input.equipment_subtype,
-      input.accessories?.trim() || "",
-      input.service_type,
-      input.client_name.trim(),
-      input.client_cnpj?.trim() || "",
-      input.quote_number?.trim() || "",
-      input.responsible_phone?.trim() || "",
-      input.problem_description?.trim() || "",
-      input.solution_notes?.trim() || "",
-      input.signature_data ?? existing.signature_data,
-      input.pickup_name?.trim() || "",
-      input.pickup_rg?.trim() || "",
-      input.pickup_date || "",
-      input.delivery_name?.trim() || "",
-      input.delivery_rg?.trim() || "",
-      input.delivery_date || "",
-      input.status || existing.status,
-      now,
-      id,
-    );
-
-    if (input.parts) {
-      replaceOrderParts(id, input.parts);
-    }
-  });
-
-  tx();
-  return getOrder(id)!;
+  applyOrderFields(order, input, now);
+  if (input.parts) replaceOrderParts(order, input.parts);
+  save();
+  return cloneOrder(order);
 }
 
 export function deleteOrder(id: number): boolean {
-  const result = getDb().prepare("DELETE FROM service_orders WHERE id = ?").run(id);
-  return result.changes > 0;
+  const store = getStore();
+  const index = store.orders.findIndex((item) => item.id === id);
+  if (index < 0) return false;
+  store.orders.splice(index, 1);
+  save();
+  return true;
 }

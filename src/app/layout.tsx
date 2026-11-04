@@ -1,16 +1,12 @@
 import type { Metadata } from "next";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
+import { IBM_Plex_Sans } from "next/font/google";
 import { Nav } from "@/components/Nav";
 import "./globals.css";
 
-const display = Fraunces({
-  variable: "--font-display",
+const sans = IBM_Plex_Sans({
+  variable: "--font-ui",
   subsets: ["latin"],
-});
-
-const body = Source_Sans_3({
-  variable: "--font-body",
-  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -25,10 +21,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className={`${display.variable} ${body.variable} h-full`}>
+    <html lang="pt-BR" className={`${sans.variable} h-full`}>
       <body className="min-h-full antialiased">
-        <Nav />
-        <main className="shell py-8 pb-16">{children}</main>
+        <div className="app">
+          <Nav />
+          <div className="workspace">
+            <main className="page">{children}</main>
+          </div>
+        </div>
       </body>
     </html>
   );

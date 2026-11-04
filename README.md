@@ -17,7 +17,7 @@ Aplicação web de **ordens de serviço de manutenção** (relógios e catracas)
 ## Stack
 
 - Next.js (App Router) + TypeScript + Tailwind CSS
-- SQLite local (`better-sqlite3`) em `data/manutencao.db`
+- Arquivo local em `data/manutencao.json` (sem banco nativo)
 - `signature_pad` + `jspdf`
 
 ## Como rodar
@@ -45,4 +45,4 @@ npm start
 
 ## Dados
 
-O banco SQLite é criado automaticamente em `data/manutencao.db` na primeira execução.
+Os dados são gravados automaticamente em `data/manutencao.json` na primeira execução.

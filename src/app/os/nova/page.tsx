@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { OrderForm } from "@/components/OrderForm";
 import { listParts } from "@/lib/db";
 
@@ -7,15 +8,16 @@ export default function NovaOsPage() {
   const parts = listParts();
 
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand)]">
-          Nova ordem
-        </p>
-        <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl tracking-tight sm:text-4xl">
-          Abrir ordem de serviço
-        </h1>
-      </div>
+    <div>
+      <header className="page-head">
+        <div>
+          <Link href="/" className="back">
+            Ordens
+          </Link>
+          <h1>Nova ordem de serviço</h1>
+          <p>Série e cliente são obrigatórios. O restante pode ser preenchido depois.</p>
+        </div>
+      </header>
       <OrderForm initialParts={parts} />
     </div>
   );

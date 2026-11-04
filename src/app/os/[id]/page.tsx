@@ -16,20 +16,18 @@ export default async function OsDetailPage({
   const parts = listParts();
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <header className="page-head">
         <div>
-          <Link href="/" className="text-sm font-semibold text-[var(--brand)]">
-            ← Voltar às ordens
+          <Link href="/" className="back">
+            Ordens
           </Link>
-          <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl tracking-tight sm:text-4xl">
-            OS #{order.id}
-          </h1>
-          <p className="mt-1 text-[var(--muted)]">
+          <h1>OS #{order.id}</h1>
+          <p>
             {order.client_name} · Série {order.serial_number}
           </p>
         </div>
-      </div>
+      </header>
       <OrderForm initialOrder={order} initialParts={parts} />
     </div>
   );

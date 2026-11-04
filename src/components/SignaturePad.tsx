@@ -75,16 +75,19 @@ export function SignaturePad({ value, onChange }: Props) {
   }
 
   return (
-    <div className="space-y-3">
-      <div className="overflow-hidden rounded-16 rounded-2xl border border-[var(--line)] bg-white">
+    <div>
+      <div
+        className="overflow-hidden bg-white"
+        style={{ border: "1px solid var(--line-strong)", borderRadius: 8 }}
+      >
         <canvas
           ref={canvasRef}
-          className="h-48 w-full touch-none"
+          className="h-36 w-full touch-none"
           aria-label="Área de assinatura"
         />
       </div>
-      <button type="button" className="btn btn-ghost" onClick={clear}>
-        Limpar assinatura
+      <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={clear}>
+        Limpar
       </button>
     </div>
   );
